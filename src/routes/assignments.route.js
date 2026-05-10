@@ -2,23 +2,22 @@ import {
   assignmentQuerySchema, 
   createAssignmentSchema, 
   updateAssignmentSchema, 
-  createPaymentSchema // Import schema baru
+  createPaymentSchema 
 } from '../schemas/assignments.schema.js';
 
 export default async function assignmentRoutes(fastify, options) {
 
-  // Helper untuk memetakan row dari v_assignment_detail (Kini termasuk Data Finansial)
+  // Helper untuk memetakan row dari v_assignment_detail
   const mapAssignmentResponse = (row) => ({
     id: row.id,
     tanggal_pembelian: row.tanggal_pembelian,
     status_kepemilikan: row.status_kepemilikan,
     
-    // Data Pembayaran (Baru)
     pembayaran: {
       tipe: row.tipe_pembayaran,
-      harga_total: parseFloat(row.harga_total),
-      total_dibayar: parseFloat(row.total_dibayar),
-      persentase_dibayar: parseFloat(row.persentase_dibayar),
+      harga_total: parseFloat(row.harga_total || 0),
+      total_dibayar: parseFloat(row.total_dibayar || 0),
+      persentase_dibayar: parseFloat(row.persentase_dibayar || 0),
       tenor_bulan: row.tenor_bulan,
       keterangan_kpr: row.keterangan_kpr
     },
@@ -46,13 +45,15 @@ export default async function assignmentRoutes(fastify, options) {
     }
   });
 
-  // GET /api/assignments - Khusus super_admin & admin
+  // GET /api/assignments
   fastify.get('/', {
-    preValidation: [fastify.authenticate, fastify.requireRole(['super_admin', 'admin'])]
+    preValidation: [fastify.authenticate]
   }, async (request, reply) => {
     try {
-      const { role, company_id: userCompanyId } = request.user;
-      const { page, limit, user_id, unit_id, status } = assignmentQuerySchema.parse(request.query);
+      const { role, company_id: userCompanyId, sub: userId } = request.user;
+      
+      // Ambil data query termasuk 'search'
+      const { page = 1, limit = 15, user_id, unit_id, status, search } = request.query;
       const offset = (page - 1) * limit;
 
       const client = await fastify.pg.connect();
@@ -61,12 +62,19 @@ export default async function assignmentRoutes(fastify, options) {
         let values = [];
         let paramIndex = 1;
 
-        if (role !== 'super_admin') {
+        // Aturan Akses Role
+        if (role === 'customer') {
+          // Customer HANYA bisa lihat miliknya sendiri
+          whereClauses.push(`user_id = $${paramIndex++}`);
+          values.push(userId);
+        } else if (role !== 'super_admin') {
+          // Admin hanya bisa lihat yang ada di perusahaannya
           whereClauses.push(`company_id = $${paramIndex++}`);
           values.push(userCompanyId);
         }
 
-        if (user_id) {
+        // Filter Manual
+        if (user_id && role !== 'customer') {
           whereClauses.push(`user_id = $${paramIndex++}`);
           values.push(user_id);
         }
@@ -77,6 +85,13 @@ export default async function assignmentRoutes(fastify, options) {
         if (status) {
           whereClauses.push(`status_kepemilikan = $${paramIndex++}`);
           values.push(status);
+        }
+
+        // Fitur Pencarian (Search)
+        if (search) {
+          whereClauses.push(`(user_nama ILIKE $${paramIndex} OR nomor_unit ILIKE $${paramIndex} OR nama_cluster ILIKE $${paramIndex})`);
+          values.push(`%${search}%`);
+          paramIndex++;
         }
 
         const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -95,19 +110,22 @@ export default async function assignmentRoutes(fastify, options) {
         reply.send({
           success: true,
           data: dataRows.map(mapAssignmentResponse),
-          meta: { page, limit, total: parseInt(countRows[0].count, 10) }
+          meta: { 
+            page: parseInt(page), 
+            limit: parseInt(limit), 
+            total: parseInt(countRows[0].count, 10) 
+          }
         });
       } finally {
         client.release();
       }
     } catch (error) {
-      if (error.name === 'ZodError') return reply.status(422).send({ success: false, error: { code: 'VALIDATION_ERROR', message: error.errors } });
       fastify.log.error(error);
       reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Server error' } });
     }
   });
 
-  // POST /api/assignments - Khusus admin
+  // POST /api/assignments
   fastify.post('/', {
     preValidation: [fastify.authenticate, fastify.requireRole(['admin', 'super_admin'])]
   }, async (request, reply) => {
@@ -132,7 +150,6 @@ export default async function assignmentRoutes(fastify, options) {
 
         const { rows } = await client.query(query, values);
         
-        // Return full detail dari View
         const { rows: detailRows } = await client.query('SELECT * FROM v_assignment_detail WHERE id = $1', [rows[0].id]);
         
         reply.status(201).send({ success: true, data: mapAssignmentResponse(detailRows[0]) });
@@ -151,7 +168,7 @@ export default async function assignmentRoutes(fastify, options) {
     }
   });
 
-  // PATCH /api/assignments/:id - Khusus admin
+  // PATCH /api/assignments/:id
   fastify.patch('/:id', {
     preValidation: [fastify.authenticate, fastify.requireRole(['admin', 'super_admin'])]
   }, async (request, reply) => {
@@ -180,7 +197,7 @@ export default async function assignmentRoutes(fastify, options) {
         const { rowCount } = await client.query(query, values);
         if (rowCount === 0) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Assignment tidak ditemukan' } });
 
-        reply.send({ success: true, data: { message: "Assignment berhasil diupdate" } });
+        reply.send({ success: true, message: "Assignment berhasil diupdate" });
       } finally {
         client.release();
       }
@@ -191,7 +208,7 @@ export default async function assignmentRoutes(fastify, options) {
     }
   });
 
-  // DELETE /api/assignments/:id - Khusus admin
+  // DELETE /api/assignments/:id
   fastify.delete('/:id', {
     preValidation: [fastify.authenticate, fastify.requireRole(['admin', 'super_admin'])]
   }, async (request, reply) => {
@@ -199,7 +216,7 @@ export default async function assignmentRoutes(fastify, options) {
       try {
         const { rowCount } = await client.query('DELETE FROM property_assignments WHERE id = $1', [request.params.id]);
         if (rowCount === 0) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Assignment tidak ditemukan' } });
-        reply.send({ success: true, data: { message: 'Assignment berhasil dihapus' } });
+        reply.send({ success: true, message: 'Assignment berhasil dihapus' });
       } catch (error) {
         fastify.log.error(error);
         reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Server error' } });
@@ -208,15 +225,12 @@ export default async function assignmentRoutes(fastify, options) {
       }
   });
 
-  // ==========================================
-  // NEW: GET RIWAYAT PEMBAYARAN (Semua Role bisa lihat milik mereka)
-  // ==========================================
+  // GET /api/assignments/:id/payments
   fastify.get('/:id/payments', {
     preValidation: [fastify.authenticate]
   }, async (request, reply) => {
     try {
       const { id } = request.params;
-      
       const query = `
         SELECT p.id, p.jumlah_bayar, p.tanggal_bayar, p.catatan, p.created_at, u.nama AS dicatat_oleh 
         FROM payment_history p
@@ -224,7 +238,6 @@ export default async function assignmentRoutes(fastify, options) {
         WHERE p.assignment_id = $1 
         ORDER BY p.tanggal_bayar DESC, p.created_at DESC
       `;
-      
       const { rows } = await fastify.pg.query(query, [id]);
       return reply.send({ success: true, data: rows });
     } catch (error) {
@@ -233,9 +246,7 @@ export default async function assignmentRoutes(fastify, options) {
     }
   });
 
-  // ==========================================
-  // NEW: POST TAMBAH PEMBAYARAN (Hanya Admin)
-  // ==========================================
+  // POST /api/assignments/:id/payments
   fastify.post('/:id/payments', {
     preValidation: [fastify.authenticate, fastify.requireRole(['admin', 'super_admin'])]
   }, async (request, reply) => {
@@ -251,11 +262,7 @@ export default async function assignmentRoutes(fastify, options) {
           VALUES ($1, $2, COALESCE($3, CURRENT_DATE), $4, $5) 
           RETURNING id, jumlah_bayar, tanggal_bayar, catatan
         `;
-        
-        const { rows } = await client.query(query, [
-          id, data.jumlah_bayar, data.tanggal_bayar, data.catatan, createdBy
-        ]);
-
+        const { rows } = await client.query(query, [id, data.jumlah_bayar, data.tanggal_bayar, data.catatan, createdBy]);
         reply.status(201).send({ success: true, message: 'Pembayaran berhasil dicatat', data: rows[0] });
       } finally {
         client.release();
