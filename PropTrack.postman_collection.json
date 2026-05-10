@@ -1,0 +1,175 @@
+{
+	"info": {
+		"name": "PropTrack API API",
+		"description": "Koleksi endpoint untuk PropTrack Fastify Backend",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Auth",
+			"item": [
+				{
+					"name": "Register User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/register",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "register" ]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"nama\": \"Budi Santoso\",\n  \"email\": \"budi@email.com\",\n  \"password\": \"Password123!\",\n  \"nomor_telepon\": \"081234567890\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Login (Auto Set Token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if(jsonData.success && jsonData.data.access_token) {",
+									"    pm.environment.set(\"access_token\", jsonData.data.access_token);",
+									"    console.log(\"Token berhasil disimpan di environment!\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "login" ]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@proptrack.com\",\n  \"password\": \"admin123\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Get Profil Me",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{access_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/me",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "me" ]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Projects & Units",
+			"item": [
+				{
+					"name": "Get All Projects",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{access_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/projects",
+							"host": [ "{{base_url}}" ],
+							"path": [ "projects" ]
+						}
+					}
+				},
+				{
+					"name": "Create Project",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{access_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/projects",
+							"host": [ "{{base_url}}" ],
+							"path": [ "projects" ]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"nama_proyek\": \"Grand Residence\",\n  \"lokasi\": \"Malang, Jawa Timur\",\n  \"deskripsi\": \"Perumahan premium di pusat kota\",\n  \"developer\": \"PT. Graha Sejahtera\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Get All Units",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{access_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/units",
+							"host": [ "{{base_url}}" ],
+							"path": [ "units" ]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Progress & Dashboard",
+			"item": [
+				{
+					"name": "Add Construction Progress",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{access_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/progress",
+							"host": [ "{{base_url}}" ],
+							"path": [ "progress" ]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"unit_id\": \"<MASUKKAN_UUID_UNIT_DI_SINI>\",\n  \"tahap\": \"Pondasi\",\n  \"progress_percentage\": 20,\n  \"tanggal_update\": \"2024-03-01\",\n  \"catatan\": \"Galian pondasi selesai\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{access_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/dashboard/stats",
+							"host": [ "{{base_url}}" ],
+							"path": [ "dashboard", "stats" ]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3001/api"
+		}
+	]
+}

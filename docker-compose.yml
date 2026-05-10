@@ -1,0 +1,54 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: proptrack_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-proptrack}
+      POSTGRES_USER:     ${POSTGRES_USER:-proptrack_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-proptrack_secret}
+      PGDATA:            /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      # Kalau ada seed data:
+      # - ./seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-proptrack_user} -d ${POSTGRES_DB:-proptrack}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - proptrack_net
+
+  # ── pgAdmin (opsional, untuk GUI) ─────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: proptrack_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    ${PGADMIN_EMAIL:-admin@proptrack.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_LISTEN_PORT:      80
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - proptrack_net
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  proptrack_net:
+    driver: bridge
