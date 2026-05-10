@@ -39,7 +39,7 @@ export default async function documentationRoutes(fastify, options) {
           let paramIndex = 1;
 
           // 2. Isolasi Multi-Tenant menggunakan alias p (projects)
-          if (role !== "super_admin") {
+          if (role !== "super_admin" && userCompanyId) {
             whereClauses.push(`p.company_id = $${paramIndex++}`);
             values.push(userCompanyId);
           }
