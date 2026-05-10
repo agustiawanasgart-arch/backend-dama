@@ -20,63 +20,88 @@ export default async function clusterRoutes(fastify, options) {
   });
 
   // GET /api/clusters - List semua cluster
+  // GET /api/clusters - List semua cluster (VERSI PERBAIKAN)
   fastify.get(
     "/",
-    {
-      preValidation: [fastify.authenticate],
-    },
+    { preValidation: [fastify.authenticate] },
     async (request, reply) => {
+      const { role, company_id } = request.user;
+      const { project_id, search, page = 1, limit = 12 } = request.query;
+      const offset = (page - 1) * limit;
+
+      const client = await fastify.pg.connect();
+
       try {
-        const { project_id, page = 1, limit = 100 } = request.query;
-        const offset = (page - 1) * limit;
+        // 1. Inisialisasi Query dasar dengan JOIN ke projects
+        let query = `
+        SELECT c.*, p.nama_proyek, p.lokasi 
+        FROM clusters c 
+        JOIN projects p ON c.project_id = p.id 
+        WHERE 1=1`;
+        let countQuery = `SELECT COUNT(*) FROM clusters c JOIN projects p ON c.project_id = p.id WHERE 1=1`;
 
-        const client = await fastify.pg.connect();
+        let params = [];
+        let paramIndex = 1;
 
-        try {
-          let whereClauses = [];
-          let values = [];
-          let paramIndex = 1;
-
-          // ✅ FILTER PROJECT
-          if (project_id) {
-            whereClauses.push(`project_id = $${paramIndex++}`);
-            values.push(project_id);
-          }
-
-          const whereString =
-            whereClauses.length > 0
-              ? `WHERE ${whereClauses.join(" AND ")}`
-              : "";
-
-          const query = `
-        SELECT * FROM clusters
-        ${whereString}
-        ORDER BY created_at DESC
-        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-      `;
-
-          const { rows } = await client.query(query, [
-            ...values,
-            limit,
-            offset,
-          ]);
-
-          reply.send({
-            success: true,
-            data: rows,
-          });
-        } finally {
-          client.release();
+        // 2. Filter berdasarkan Perusahaan (Role Security)
+        if (role !== "super_admin") {
+          const filter = ` AND p.company_id = $${paramIndex++}`;
+          query += filter;
+          countQuery += filter;
+          params.push(company_id);
         }
+
+        // 3. Filter berdasarkan Proyek (Jika dipilih di UI)
+        if (project_id) {
+          const filter = ` AND c.project_id = $${paramIndex++}`;
+          query += filter;
+          countQuery += filter;
+          params.push(project_id);
+        }
+
+        // 4. Implementasi SEARCH (Nama Cluster)
+        if (search) {
+          const filter = ` AND c.nama_cluster ILIKE $${paramIndex++}`;
+          query += filter;
+          countQuery += filter;
+          params.push(`%${search}%`);
+        }
+
+        // 5. Eksekusi Count untuk Pagination
+        const { rows: countRows } = await client.query(countQuery, params);
+        const total = parseInt(countRows[0].count);
+
+        // 6. Finalisasi Query dengan Sort dan Limit
+        query += ` ORDER BY c.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
+        params.push(limit, offset);
+
+        const { rows } = await client.query(query, params);
+
+        // 7. Map response agar rapi
+        const data = rows.map((row) => ({
+          id: row.id,
+          nama_cluster: row.nama_cluster,
+          jumlah_unit: row.jumlah_unit,
+          project: {
+            id: row.project_id,
+            nama_proyek: row.nama_proyek,
+            lokasi: row.lokasi,
+          },
+          created_at: row.created_at,
+        }));
+
+        reply.send({
+          success: true,
+          data: data,
+          meta: { total, page: Number(page), limit: Number(limit) },
+        });
       } catch (error) {
         fastify.log.error(error);
-        reply.status(500).send({
-          success: false,
-          error: {
-            code: "INTERNAL_ERROR",
-            message: "Server error",
-          },
-        });
+        reply
+          .status(500)
+          .send({ success: false, message: "Internal Server Error" });
+      } finally {
+        client.release();
       }
     },
   );
